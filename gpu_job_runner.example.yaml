@@ -1,0 +1,35 @@
+# GPU 任务队列配置 - 由 gpu_job_runner.sh 读取
+#
+# 任务按列表顺序尝试提交：前面的任务一旦拿到空闲卡就会立即后台启动，
+# 调度器随后继续轮询，GPU 空出来后再提交后续任务。
+
+# 可选：日志根目录（默认：./gpu_job_logs/<本次运行时间戳>/）
+# log_dir: /path/to/logs/my_run
+
+# 可选：同时运行的任务数上限（0 表示不限制；默认 0）
+# max_parallel_tasks: 2
+
+# 可选：永远不使用的 GPU ID 列表
+# never_use_gpus: [0, 1]
+
+# 可选：传给 get_free_gpus 的额外参数（每行一个 token，与 shell 一致）
+# get_free_gpus_extra:
+#   - --only-use
+#   - "0,1,2,3"
+# 或者使用动态排除文件：
+# get_free_gpus_extra:
+#   - --not-use-config
+#   - /path/to/excluded_gpus.yaml
+
+tasks:
+  - name: gpu_info
+    gpus: 1
+    cmd: |
+      echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+      nvidia-smi --query-gpu=index,name,memory.used --format=csv
+
+  - name: python_check
+    gpus: 1
+    # workdir: /path/to/project   # 可选：在此目录下执行
+    cmd: |
+      python3 -c 'import os; print("assigned GPUs:", os.environ["CUDA_VISIBLE_DEVICES"])'

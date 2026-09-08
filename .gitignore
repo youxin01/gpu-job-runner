@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+gpu_job_logs/
+jobs.yaml
+*.swp
+.DS_Store
