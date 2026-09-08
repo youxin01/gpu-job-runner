@@ -163,16 +163,6 @@ is not an atomic reservation against unrelated users, so another process may
 claim a GPU after detection. Use an allowlist, a shared exclusion file, or a
 site-level scheduler when strict isolation is required.
 
-## Development
-
-The test suite uses a fake GPU helper and does not require NVIDIA hardware:
-
-```bash
-python3 -m unittest discover -s tests -v
-bash -n get_free_gpus.sh gpu_job_runner.sh gpu_job_runner_task.sh
-python3 -m py_compile get_free_gpus.py gpu_job_runner_parse.py
-```
-
 ## License
 
 [MIT](LICENSE)
