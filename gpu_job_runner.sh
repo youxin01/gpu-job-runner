@@ -184,6 +184,7 @@ declare -A TASK_DIR_MAP=()
 declare -A TASK_ATTEMPT_MAP=()
 declare -A TASK_PGID_MAP=()
 declare -A NEXT_ATTEMPT_MAP=()
+declare -A SHUTDOWN_PGIDS=()
 INTERRUPTED=0
 
 sleep_ms() {
@@ -200,12 +201,60 @@ log_scheduler() {
     echo "[$ts] $message" | tee -a "$SCHEDULER_LOG"
 }
 
-terminate_active_tasks() {
+snapshot_active_task_pgids() {
+    local root_pid
+    local pid
+    local pgid
+    local children_file
+    local position
+    local child
+    local -a queue=()
+    local -a children=()
+    local -A seen=()
+
+    SHUTDOWN_PGIDS=()
+    for root_pid in "${!ACTIVE_PID_TO_IDX[@]}"; do
+        queue=("$root_pid")
+        position=0
+        while [ "$position" -lt "${#queue[@]}" ]; do
+            pid="${queue[$position]}"
+            position=$((position + 1))
+            if [ -n "${seen[$pid]:-}" ]; then
+                continue
+            fi
+            seen["$pid"]=1
+
+            pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
+            if [[ "$pgid" =~ ^[0-9]+$ ]] && [ "$pgid" -gt 1 ]; then
+                SHUTDOWN_PGIDS["$pgid"]=1
+            fi
+
+            for children_file in /proc/"${pid}"/task/*/children; do
+                children=()
+                if [ -r "$children_file" ]; then
+                    read -r -a children < "$children_file" || true
+                    for child in "${children[@]}"; do
+                        queue+=("$child")
+                    done
+                fi
+            done
+        done
+    done
+
+    # Preserve the recorded task groups if a wrapper exits during discovery.
+    for pgid in "${!ACTIVE_PGID_TO_IDX[@]}"; do
+        if [[ "$pgid" =~ ^[0-9]+$ ]] && [ "$pgid" -gt 1 ]; then
+            SHUTDOWN_PGIDS["$pgid"]=1
+        fi
+    done
+}
+
+signal_shutdown_targets() {
     local signal="${1:-TERM}"
     local pid
     local pgid
 
-    for pgid in "${!ACTIVE_PGID_TO_IDX[@]}"; do
+    for pgid in "${!SHUTDOWN_PGIDS[@]}"; do
         if [ -n "$pgid" ] && kill -0 "-$pgid" 2>/dev/null; then
             kill "-${signal}" "-$pgid" 2>/dev/null || true
         fi
@@ -224,15 +273,16 @@ handle_interrupt() {
 
     if [ "$INTERRUPTED" -eq 1 ]; then
         # 第二次 Ctrl+C 直接强杀，避免卡住。
-        terminate_active_tasks KILL
+        signal_shutdown_targets KILL
         exit 130
     fi
     INTERRUPTED=1
 
     log_scheduler "[中断] 捕获到 ${sig}，正在停止 ${#ACTIVE_PID_TO_IDX[@]} 个运行中任务..."
-    terminate_active_tasks TERM
+    snapshot_active_task_pgids
+    signal_shutdown_targets TERM
     sleep 1
-    terminate_active_tasks KILL
+    signal_shutdown_targets KILL
 
     # 回收子进程，避免僵尸进程和残留后台任务。
     for pid in "${!ACTIVE_PID_TO_IDX[@]}"; do

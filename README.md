@@ -127,9 +127,12 @@ Optional timing controls:
 ## Stopping a Run
 
 Press `Ctrl+C` once to stop the scheduler and every active child task. The runner
-sends `TERM`, waits one second, sends `KILL` to anything still active, reaps its
-children, and exits with status 130. Pressing `Ctrl+C` again forces immediate
-termination.
+snapshots process groups for the active task trees, including descendants that
+created nested sessions with `setsid`. It sends `TERM`, waits one second, sends
+`KILL` to the same snapshot, reaps its direct children, and exits with status
+130. Pressing `Ctrl+C` again forces immediate termination. A process that fully
+daemonized and was reparented before the interrupt is outside this task-tree
+guarantee.
 
 ## Selecting GPUs Directly
 

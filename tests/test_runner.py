@@ -141,6 +141,65 @@ tasks:
                 if process.stdout is not None:
                     process.stdout.close()
 
+    def test_ctrl_c_stops_descendant_in_nested_session(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            helper = temp / "fake_gpu_helper.sh"
+            nested_started = temp / "nested_started"
+            logs = temp / "logs"
+            config = temp / "jobs.yaml"
+            write_fake_gpu_helper(helper)
+            config.write_text(
+                f"""
+log_dir: {logs}
+tasks:
+  - name: nested_session
+    gpus: 1
+    cmd: |
+      setsid bash -c 'trap "" TERM; echo $$ > {nested_started}; while :; do sleep 1; done' &
+      wait
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            process = subprocess.Popen(
+                ["bash", str(RUNNER), str(config), "--gpu-helper", str(helper)],
+                env=runner_env(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+            )
+            nested_pid = None
+            try:
+                deadline = time.time() + 5
+                while not nested_started.exists() and time.time() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(nested_started.exists(), "nested session did not start")
+                nested_pid = int(nested_started.read_text().strip())
+
+                os.kill(process.pid, signal.SIGINT)
+                process.wait(timeout=5)
+                self.assertEqual(process.returncode, 130)
+
+                deadline = time.time() + 2
+                while process_is_running(nested_pid) and time.time() < deadline:
+                    time.sleep(0.05)
+                self.assertFalse(
+                    process_is_running(nested_pid),
+                    f"nested-session descendant survived Ctrl+C: {nested_pid}",
+                )
+                scheduler_log = (logs / "scheduler.log").read_text(encoding="utf-8")
+                self.assertIn("[中断] 所有任务已停止", scheduler_log)
+            finally:
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=2)
+                if nested_pid is not None and process_is_running(nested_pid):
+                    os.killpg(nested_pid, signal.SIGKILL)
+                if process.stdout is not None:
+                    process.stdout.close()
+
 
 if __name__ == "__main__":
     unittest.main()
