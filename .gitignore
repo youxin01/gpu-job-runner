@@ -8,3 +8,13 @@ gpu_job_logs/
 jobs.yaml
 *.swp
 .DS_Store
+recover_gpu_state.py
+recover_gpu_state.yaml
+tests/test_recover_gpu_state.py
+tests/test_runner.py
+tests/test_parser.py
+docs/decisions/0001-terminate-nested-task-sessions.md
+docs/decisions/0002-bound-task-retries.md
+findings.md
+progress.md
+task_plan.md

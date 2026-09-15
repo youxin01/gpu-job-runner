@@ -42,6 +42,7 @@ def main() -> None:
     gpu_extra = data.get("get_free_gpus_extra", [])
     never_use_gpus = data.get("never_use_gpus", [])
     max_parallel_tasks = data.get("max_parallel_tasks", 0)
+    max_retries = data.get("max_retries", -1)
     if gpu_extra is None:
         gpu_extra = []
     if never_use_gpus is None:
@@ -65,6 +66,14 @@ def main() -> None:
     if max_parallel_tasks < 0:
         print("max_parallel_tasks 不能小于 0（0 表示不限制）", file=sys.stderr)
         raise SystemExit(1)
+    try:
+        max_retries = int(max_retries)
+    except (TypeError, ValueError):
+        print("max_retries 必须是整数（-1 表示无限重试）", file=sys.stderr)
+        raise SystemExit(1)
+    if max_retries < -1:
+        print("max_retries 不能小于 -1（-1 表示无限重试）", file=sys.stderr)
+        raise SystemExit(1)
 
     (args.staging / "_global.log_dir").write_text(str(log_dir).strip() + "\n", encoding="utf-8")
     (args.staging / "_global.gpu_extra").write_text(
@@ -75,6 +84,9 @@ def main() -> None:
     )
     (args.staging / "_global.max_parallel_tasks").write_text(
         str(max_parallel_tasks) + "\n", encoding="utf-8"
+    )
+    (args.staging / "_global.max_retries").write_text(
+        str(max_retries) + "\n", encoding="utf-8"
     )
 
     for i, t in enumerate(tasks):

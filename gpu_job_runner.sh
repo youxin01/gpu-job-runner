@@ -136,6 +136,14 @@ if ! [[ "$max_parallel_tasks" =~ ^[0-9]+$ ]]; then
     echo "配置错误: max_parallel_tasks 必须是非负整数（0 表示不限制）" >&2
     exit 1
 fi
+max_retries="$(tr -d '\r\n' < "${STAGING}/_global.max_retries" 2>/dev/null || true)"
+if [ -z "$max_retries" ]; then
+    max_retries=-1
+fi
+if ! [[ "$max_retries" =~ ^-?[0-9]+$ ]] || [ "$max_retries" -lt -1 ]; then
+    echo "配置错误: max_retries 必须是大于等于 -1 的整数（-1 表示无限重试）" >&2
+    exit 1
+fi
 
 BASE_ONLY_USE=""
 BASE_NOT_USE_CONFIG=""
@@ -186,6 +194,7 @@ declare -A TASK_PGID_MAP=()
 declare -A NEXT_ATTEMPT_MAP=()
 declare -A SHUTDOWN_PGIDS=()
 INTERRUPTED=0
+exhausted_tasks=0
 
 sleep_ms() {
     local ms="$1"
@@ -278,6 +287,10 @@ handle_interrupt() {
     fi
     INTERRUPTED=1
 
+    # Closing a terminal/tmux pane can send HUP immediately after INT.
+    # Once teardown starts, do not let that HUP abort cleanup halfway through.
+    trap '' HUP
+
     log_scheduler "[中断] 捕获到 ${sig}，正在停止 ${#ACTIVE_PID_TO_IDX[@]} 个运行中任务..."
     snapshot_active_task_pgids
     signal_shutdown_targets TERM
@@ -296,6 +309,7 @@ handle_interrupt() {
 
 trap 'handle_interrupt INT' INT
 trap 'handle_interrupt TERM' TERM
+trap 'handle_interrupt HUP' HUP
 
 refresh_runtime_not_use_config() {
     local reserved_list=()
@@ -415,10 +429,15 @@ record_finished_task() {
 
     release_gpus "$cuda_ids"
     if [ "$rc" != "0" ]; then
-        TASK_DIRS+=( "$task_dir" )
-        total_tasks="${#TASK_DIRS[@]}"
-        NEXT_ATTEMPT_MAP["$idx"]=$((attempt + 1))
-        log_scheduler "[失败重排] [$idx] $name attempt=${attempt} exit=$rc，已加入队列末尾；gpus=${cuda_ids:-<none>} log=$log_file"
+        if [ "$max_retries" -lt 0 ] || [ "$attempt" -le "$max_retries" ]; then
+            TASK_DIRS+=( "$task_dir" )
+            total_tasks="${#TASK_DIRS[@]}"
+            NEXT_ATTEMPT_MAP["$idx"]=$((attempt + 1))
+            log_scheduler "[失败重排] [$idx] $name attempt=${attempt} exit=$rc，已加入队列末尾；gpus=${cuda_ids:-<none>} log=$log_file"
+        else
+            exhausted_tasks=$((exhausted_tasks + 1))
+            log_scheduler "[重试耗尽] [$idx] $name attempt=${attempt} exit=$rc，max_retries=${max_retries}；不再重排。log=$log_file"
+        fi
     else
         log_scheduler "[完成] [$idx] $name attempt=${attempt} exit=$rc gpus=${cuda_ids:-<none>} log=$log_file"
     fi
@@ -461,6 +480,11 @@ if [ "$max_parallel_tasks" -gt 0 ]; then
     log_scheduler "并发上限: max_parallel_tasks=$max_parallel_tasks"
 else
     log_scheduler "并发上限: 不限制（仅受 GPU 可用量约束）"
+fi
+if [ "$max_retries" -lt 0 ]; then
+    log_scheduler "重试上限: 不限制"
+else
+    log_scheduler "重试上限: max_retries=$max_retries（总尝试次数最多 $((max_retries + 1))）"
 fi
 
 while :; do
@@ -531,5 +555,8 @@ echo "全部任务已调度完毕。汇总: $SUMMARY"
 echo "退出码列表: $RESULTS"
 echo "调度日志: $SCHEDULER_LOG"
 
-# 失败任务会一直重试；能走到这里说明所有任务最终都成功了。
+if [ "$exhausted_tasks" -gt 0 ]; then
+    echo "有 ${exhausted_tasks} 个任务已耗尽重试次数。" >&2
+    exit 1
+fi
 exit 0

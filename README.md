@@ -15,7 +15,7 @@ GPUs without a cluster scheduler.
 - Supports one or multiple GPUs per task.
 - Runs jobs concurrently when resources are available.
 - Supports GPU allowlists and exclusion lists.
-- Requeues failed jobs at the end of the queue until they succeed.
+- Requeues failed jobs with a configurable global retry limit.
 - Stops the runner and all active child tasks on `Ctrl+C` or `SIGTERM`.
 - Writes per-attempt logs, scheduling events, exit codes, and wall times.
 - Executes multiple YAML job files sequentially.
@@ -48,6 +48,7 @@ A minimal configuration:
 ```yaml
 log_dir: ./gpu_job_logs/demo
 max_parallel_tasks: 2
+max_retries: 2
 
 tasks:
   - name: train_model
@@ -74,6 +75,7 @@ frameworks such as PyTorch normally expose them as local devices 0 and 1.
 | --- | --- | --- |
 | `log_dir` | `./gpu_job_logs/<timestamp>` | Log and summary directory. |
 | `max_parallel_tasks` | `0` | Concurrent job limit; `0` means no explicit limit. |
+| `max_retries` | `-1` | Retries after the initial attempt; `-1` is unlimited and `0` runs once. |
 | `never_use_gpus` | `[]` | GPU IDs that this run must never select. |
 | `get_free_gpus_extra` | `[]` | Arguments forwarded to the GPU selector, one token per item. |
 
@@ -113,8 +115,10 @@ below 10%. The scheduler also excludes GPUs already assigned to its own active
 tasks.
 
 When a command exits with a nonzero status, it is appended to the end of the
-queue and retried. Retries are intentionally unlimited, so configuration or code
-errors continue retrying until the runner is stopped.
+queue and retried. The default `max_retries: -1` preserves unlimited retries.
+With `max_retries: 2`, each task runs at most three times: the initial attempt
+plus two retries. An exhausted task is not requeued; the runner lets other tasks
+finish and then exits nonzero.
 
 Optional timing controls:
 
@@ -126,7 +130,8 @@ Optional timing controls:
 
 ## Stopping a Run
 
-Press `Ctrl+C` once to stop the scheduler and every active child task. The runner
+Press `Ctrl+C` once, or close the terminal/tmux session, to stop the scheduler
+and every active child task. The runner
 snapshots process groups for the active task trees, including descendants that
 created nested sessions with `setsid`. It sends `TERM`, waits one second, sends
 `KILL` to the same snapshot, reaps its direct children, and exits with status
@@ -144,6 +149,22 @@ python3 get_free_gpus.py --num 2
 
 # Check once; print an empty line if no GPU is available.
 python3 get_free_gpus.py --num 1 --non-blocking
+
+## Recovering False-Busy GPUs
+
+After a multi-GPU CUDA/NCCL process is force-killed, the NVIDIA driver may show
+`2 MiB` memory, no compute process, and persistent `100%` utilization. Edit the
+`gpus` list in `recover_gpu_state.yaml`, then run:
+
+```bash
+./recover_gpu_state.py
+```
+
+The tool creates and cleanly closes one minimal CUDA context on each listed GPU.
+It refuses any GPU with an active compute process and never kills processes.
+Use `--dry-run` to validate the selection without creating CUDA contexts. This
+tool intentionally bypasses idle-GPU scheduling because false-busy GPUs fail the
+normal utilization check.
 
 # Use the shell function from another script.
 source ./get_free_gpus.sh
