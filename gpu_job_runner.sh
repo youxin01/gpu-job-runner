@@ -509,7 +509,7 @@ while :; do
         wall_file="${task_dir}/wall"
 
         cuda_ids="$(acquire_gpus_nonblocking "$gpus")"
-        if [ -z "$cuda_ids" ]; then
+        if [ -z "$cuda_ids" ] && [ "$gpus" != "0" ]; then
             now_ms="$(( $(date +%s) * 1000 ))"
             if [ "$idx" != "$last_wait_idx" ] || [ $((now_ms - last_wait_log_ms)) -ge "$wait_log_every_ms" ]; then
                 log_scheduler "[等待] [$idx] $name 需要 ${gpus} 张卡，当前无足够空闲 GPU；已提交 ${next_task_pos}/${total_tasks}，运行中 ${#ACTIVE_PID_TO_IDX[@]}"

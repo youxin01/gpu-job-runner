@@ -60,6 +60,24 @@ tasks:
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("缺少 gpus 或 cmd", result.stderr)
 
+    def test_rejects_negative_gpu_count(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            config = temp / "jobs.yaml"
+            config.write_text(
+                "tasks:\n  - name: invalid\n    gpus: -1\n    cmd: echo bad\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(PARSER), str(config), str(temp / "staging")],
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("gpus 不能小于 0", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

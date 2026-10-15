@@ -9,7 +9,7 @@ workdir="$3"
 log_file="${4:?missing log file}"
 rc_file="${5:?missing exit-code file}"
 wall_file="${6:?missing wall-time file}"
-cuda_ids="${7:?missing GPU IDs}"
+cuda_ids="${7-}"
 
 export CUDA_VISIBLE_DEVICES="$cuda_ids"
 : >"$log_file"

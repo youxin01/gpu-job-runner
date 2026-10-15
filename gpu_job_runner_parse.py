@@ -101,6 +101,9 @@ def main() -> None:
             print(f"任务 {name}: 缺少 gpus 或 cmd", file=sys.stderr)
             raise SystemExit(1)
         gpus = int(t["gpus"])
+        if gpus < 0:
+            print(f"任务 {name}: gpus 不能小于 0", file=sys.stderr)
+            raise SystemExit(1)
         cmd = t["cmd"]
         if isinstance(cmd, list):
             cmd = "\n".join(str(x) for x in cmd)

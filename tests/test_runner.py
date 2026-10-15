@@ -39,6 +39,43 @@ def process_is_running(pid):
 
 
 class RunnerTests(unittest.TestCase):
+    def test_runs_zero_gpu_task_without_waiting_for_gpu_helper(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            helper = temp / "empty_gpu_helper.sh"
+            logs = temp / "logs"
+            config = temp / "jobs.yaml"
+            helper.write_text(
+                "#!/usr/bin/env bash\nget_free_gpus() { printf ''; }\n",
+                encoding="utf-8",
+            )
+            helper.chmod(0o755)
+            config.write_text(
+                f"""
+log_dir: {logs}
+tasks:
+  - name: api_only
+    gpus: 0
+    cmd: |
+      test -z "$CUDA_VISIBLE_DEVICES"
+      echo completed
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["bash", str(RUNNER), str(config), "--gpu-helper", str(helper)],
+                env=runner_env(),
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = (logs / "summary.tsv").read_text(encoding="utf-8")
+            self.assertIn("\t1\t0\t\t0\t", summary)
+            self.assertIn("completed", (logs / "000_api_only.attempt001.log").read_text())
+
     def test_requeues_failed_task_and_preserves_attempt_logs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = Path(temp_dir)

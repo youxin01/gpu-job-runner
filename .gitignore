@@ -1,19 +1,27 @@
+# Python environments and caches
 __pycache__/
 *.py[cod]
 .venv/
 venv/
 .pytest_cache/
 .ruff_cache/
+
+# Local job configurations and output
 gpu_job_logs/
+logs/
+*.log
 jobs.yaml
+
+# Editor files
 *.swp
 .DS_Store
+
+# Local GPU recovery utility and configuration
 recover_gpu_state.py
 recover_gpu_state.yaml
 tests/test_recover_gpu_state.py
-tests/test_runner.py
-tests/test_parser.py
-docs/decisions/0001-terminate-nested-task-sessions.md
+
+# Local working notes
 docs/decisions/0002-bound-task-retries.md
 findings.md
 progress.md
